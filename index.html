@@ -76,6 +76,52 @@
 </div>
 
 <script>
+
+// Detect iframe + storage permisssions
+const IN_IFRAME = (()=>{ try { return window.self !== window.top; } catch { return true; } })();
+
+// Simple modal helpers
+function showExportModal(text){
+  const modal = document.getElementById('exportModal');
+  const txt   = document.getElementById('exportTxt');
+  const close = document.getElementById('expClose');
+  const copy  = document.getElementById('expCopy');
+  const dl    = document.getElementById('expDl');
+
+  txt.value = text;
+  modal.style.display = 'grid';
+
+  // Select text on open (nice UX)
+  setTimeout(()=>{ txt.focus(); txt.select(); }, 50);
+
+  const doClose = ()=>{ modal.style.display='none';
+    close.onclick = copy.onclick = dl.onclick = null; };
+
+  close.onclick = doClose;
+
+  copy.onclick = async ()=>{
+    try { await navigator.clipboard.writeText(txt.value); copy.textContent = 'Copied!'; setTimeout(()=>copy.textContent='Copy JSON',1200); }
+    catch { /* ignore */ }
+  };
+
+  dl.onclick = ()=>{
+    // Try real download (works outside Notion)
+    try{
+      const blob = new Blob([txt.value], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'consistency-tracker.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(a.href);
+    }catch(e){
+      // Fallback: open data URL (may still be blocked in iframe)
+      const url = 'data:application/json;charset=utf-8,' + encodeURIComponent(txt.value);
+      window.open(url, '_blank');
+    }
+  };
+}
+
+
 (function(){
   const $ = s=>document.querySelector(s);
   const tbody = $('#tbody');
@@ -152,9 +198,32 @@ try {
   }
 }
 
+// function exportData(){
+//   const json = JSON.stringify(state, null, 2);
+//   // Try normal download first
+//   try{
+//     const blob = new Blob([json], {type:'application/json'});
+//     const a = document.createElement('a');
+//     a.href = URL.createObjectURL(blob);
+//     a.download = 'consistency-tracker.json';
+//     document.body.appendChild(a); a.click(); a.remove();
+//     URL.revokeObjectURL(a.href);
+//   } catch(e){
+//     // Fallback: open in new tab or show copy dialog
+//     const url = 'data:application/json;charset=utf-8,' + encodeURIComponent(json);
+//     window.open(url, '_blank'); // clipboard fallback:
+//     // navigator.clipboard.writeText(json);
+//   }
+// }
+
 function exportData(){
   const json = JSON.stringify(state, null, 2);
-  // Try normal download first
+  if (IN_IFRAME) {
+    // In Notion: show modal with copy/download options
+    showExportModal(json);
+    return;
+  }
+  // Direct page: do a normal download
   try{
     const blob = new Blob([json], {type:'application/json'});
     const a = document.createElement('a');
@@ -162,11 +231,9 @@ function exportData(){
     a.download = 'consistency-tracker.json';
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(a.href);
-  } catch(e){
-    // Fallback: open in new tab or show copy dialog
-    const url = 'data:application/json;charset=utf-8,' + encodeURIComponent(json);
-    window.open(url, '_blank'); // clipboard fallback:
-    // navigator.clipboard.writeText(json);
+  }catch(e){
+    // Fallback: show modal if download fails
+    showExportModal(json);
   }
 }
 
