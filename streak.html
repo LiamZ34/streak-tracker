@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>30-Day Consistency Tracker</title>
+<style>
+  :root{
+    --bg:#0e1117; --panel:#151a23; --text:#e6edf3; --muted:#9aa3b2;
+    --line:#232b3a; --accent:#7ee787; --accent2:#58a6ff; --danger:#ff7b72;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,Segoe UI,Roboto,Inter,Arial}
+  .wrap{max-width:900px;margin:32px auto;padding:0 16px}
+  h1{font-size:20px;margin:0 0 12px}
+  .toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .toolbar input,.toolbar select,.toolbar button{
+    background:#0f1320;border:1px solid var(--line);color:var(--text);
+    padding:8px 10px;border-radius:10px
+  }
+  .toolbar button{cursor:pointer}
+  .toolbar .primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#00130b;border:0;font-weight:700}
+  .toolbar .danger{background:linear-gradient(135deg,#fb7185,#f43f5e);color:#190306;border:0;font-weight:700}
+  .stats{display:flex;flex-wrap:wrap;gap:12px;margin:14px 0}
+  .kpi{flex:1 1 180px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .kpi h3{margin:0 0 6px;color:var(--muted);font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+  .kpi p{margin:0;font-size:22px;font-weight:800}
+  table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px;overflow:hidden;border-radius:12px;border:1px solid var(--line)}
+  thead th{background:#0f1320;color:#b6c2d0;font-weight:600;padding:10px;border-bottom:1px solid var(--line);text-align:left}
+  tbody td{padding:10px;border-top:1px solid var(--line)}
+  .date{color:#b6c2d0}
+  .note{width:100%;background:#0f1320;border:1px solid var(--line);color:var(--text);padding:8px;border-radius:8px}
+  .hint{color:var(--muted);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Consistency Tracker</h1>
+
+  <div class="toolbar">
+    <label>Start date <input id="startDate" type="date"></label>
+    <label>Total days
+      <select id="totalDays">
+        <option value="30" selected>30</option>
+        <option value="21">21</option>
+        <option value="60">60</option>
+      </select>
+    </label>
+    <button id="exportBtn">Export</button>
+    <button id="importBtn">Import</button>
+    <button id="resetBtn" class="danger">Reset</button>
+    <button id="saveBtn" class="primary">Save</button>
+  </div>
+
+  <div class="stats">
+    <div class="kpi"><h3>Days Completed</h3><p><span id="doneCount">0</span>/<span id="totalCount">30</span></p></div>
+    <div class="kpi"><h3>Completion Rate</h3><p id="pct">0%</p></div>
+    <div class="kpi"><h3>Current Streak</h3><p id="streakNow">0</p></div>
+    <div class="kpi"><h3>Best Streak</h3><p id="streakBest">0</p></div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:80px">Day</th>
+        <th style="width:160px">Date</th>
+        <th>Notes / Wins / Lessons</th>
+        <th style="width:90px">Done</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+
+  <p class="hint">Tip: It auto-saves to your browser (localStorage). Use Export/Import to back up or move progress.</p>
+</div>
+
+<script>
+(function(){
+  const $ = s=>document.querySelector(s);
+  const tbody = $('#tbody');
+  const startEl = $('#startDate');
+  const totalEl = $('#totalDays');
+  const doneEl = $('#doneCount'), totalElOut = $('#totalCount'), pctEl = $('#pct');
+  const streakNowEl = $('#streakNow'), streakBestEl = $('#streakBest');
+  const saveBtn = $('#saveBtn'), resetBtn = $('#resetBtn');
+  const exportBtn = $('#exportBtn'), importBtn = $('#importBtn');
+
+  const KEY = 'consistency-tracker:v2';
+
+  let state = {
+    startDate: new Date().toISOString().slice(0,10),
+    totalDays: 30,
+    bestStreak: 0,
+    items: [] // {day, date, done, note}
+  };
+
+  function initItems(){
+    state.items = [];
+    const start = new Date(state.startDate + 'T00:00:00');
+    for(let i=0;i<state.totalDays;i++){
+      const d = new Date(start); d.setDate(start.getDate()+i);
+      state.items.push({ day:i+1, date:d.toISOString().slice(0,10), done:false, note:'' });
+    }
+  }
+
+  function load(){
+    const raw = localStorage.getItem(KEY);
+    if(raw){
+      try{
+        const data = JSON.parse(raw);
+        state = Object.assign({bestStreak:0, items:[]}, data);
+      }catch(e){
+        console.warn('Bad data, reinit', e);
+        initItems();
+      }
+    }else{
+      initItems();
+    }
+    startEl.value = state.startDate;
+    totalEl.value = String(state.totalDays);
+    render();
+  }
+
+  function save(){
+    state.startDate = startEl.value || new Date().toISOString().slice(0,10);
+    state.totalDays = parseInt(totalEl.value,10) || 30;
+    localStorage.setItem(KEY, JSON.stringify(state));
+  }
+
+  function reset(){
+    if(!confirm('Reset all progress?')) return;
+    initItems();
+    state.bestStreak = 0;
+    render(); save();
+  }
+
+  function exportData(){
+    const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'consistency-tracker.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function importData(){
+    const inp = document.createElement('input');
+    inp.type='file'; inp.accept='application/json';
+    inp.onchange = e=>{
+      const f = e.target.files?.[0]; if(!f) return;
+      const rd = new FileReader();
+      rd.onload = ()=>{
+        try{
+          const data = JSON.parse(rd.result);
+          state = Object.assign({bestStreak:0, items:[]}, data);
+          startEl.value = state.startDate;
+          totalEl.value = String(state.totalDays);
+          render(); save();
+        }catch(err){ alert('Invalid JSON'); }
+      };
+      rd.readAsText(f);
+    };
+    inp.click();
+  }
+
+  function calcStats(){
+    const done = state.items.reduce((a,b)=>a+(b.done?1:0),0);
+    const pct = state.totalDays? Math.round(done/state.totalDays*100) : 0;
+
+    // Current streak: count consecutive 'done' from the start to the latest break
+    // Simpler approach: count the longest contiguous run from beginning to now? For habit feel,
+    // we compute streak as the last contiguous run ending at the last completed day index.
+    let current = 0;
+    for(let i=0;i<state.items.length;i++){
+      if(state.items[i].done) current++;
+      else current = 0;
+      if(current > state.bestStreak) state.bestStreak = current;
+    }
+    return {done, pct, current, best: state.bestStreak};
+  }
+
+  function render(){
+    tbody.innerHTML = '';
+    totalElOut.textContent = state.totalDays;
+
+    state.items.forEach((it, idx)=>{
+      const tr = document.createElement('tr');
+
+      const tdDay = document.createElement('td');
+      tdDay.textContent = `Day ${it.day}`;
+      tr.appendChild(tdDay);
+
+      const tdDate = document.createElement('td');
+      const d = new Date(it.date+'T00:00:00');
+      tdDate.innerHTML = `<span class="date">${d.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})}</span>`;
+      tr.appendChild(tdDate);
+
+      const tdNote = document.createElement('td');
+      const note = document.createElement('input');
+      note.className='note'; note.placeholder='Notes / wins / lessons';
+      note.value = it.note || '';
+      note.oninput = e=>{ state.items[idx].note = e.target.value; save(); };
+      tdNote.appendChild(note);
+      tr.appendChild(tdNote);
+
+      const tdDone = document.createElement('td');
+      const chk = document.createElement('input');
+      chk.type='checkbox'; chk.checked = !!it.done;
+      chk.onchange = e=>{ state.items[idx].done = e.target.checked; updateStats(); save(); };
+      tdDone.appendChild(chk);
+      tr.appendChild(tdDone);
+
+      tbody.appendChild(tr);
+    });
+
+    updateStats();
+  }
+
+  function updateDatesFromStart(){
+    const start = new Date((startEl.value || new Date().toISOString().slice(0,10)) + 'T00:00:00');
+    for(let i=0;i<state.items.length;i++){
+      const d = new Date(start); d.setDate(start.getDate()+i);
+      state.items[i].date = d.toISOString().slice(0,10);
+    }
+  }
+
+  function resizeTotalDays(newTotal){
+    const old = state.items.slice();
+    state.items = [];
+    const start = new Date((startEl.value || new Date().toISOString().slice(0,10)) + 'T00:00:00');
+    for(let i=0;i<newTotal;i++){
+      const d = new Date(start); d.setDate(start.getDate()+i);
+      state.items.push({
+        day:i+1,
+        date:d.toISOString().slice(0,10),
+        done: old[i]? !!old[i].done : false,
+        note: old[i]? (old[i].note||'') : ''
+      });
+    }
+  }
+
+  function updateStats(){
+    const {done, pct, current, best} = calcStats();
+    doneEl.textContent = done;
+    pctEl.textContent = pct + '%';
+    streakNowEl.textContent = current;
+    streakBestEl.textContent = best;
+    if(done === 15) alert('Halfway there! 🎉');
+if(done === state.totalDays) alert('Challenge complete! 🏁🔥');
+  }
+
+  // Events
+  saveBtn.onclick = save;
+  resetBtn.onclick = reset;
+  exportBtn.onclick = exportData;
+  importBtn.onclick = importData;
+
+  startEl.onchange = ()=>{
+    state.startDate = startEl.value || new Date().toISOString().slice(0,10);
+    updateDatesFromStart(); render(); save();
+  };
+  totalEl.onchange = ()=>{
+    const n = parseInt(totalEl.value,10) || 30;
+    state.totalDays = n; resizeTotalDays(n); render(); save();
+  };
+
+  // Boot
+  if(!startEl.value) startEl.value = new Date().toISOString().slice(0,10);
+  load();
+})();
+</script>
+</body>
+</html>
