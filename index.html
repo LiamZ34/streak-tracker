@@ -37,6 +37,7 @@
 <div class="wrap">
   <h1>Consistency Tracker</h1>
 
+
   <div class="toolbar">
     <label>Start date <input id="startDate" type="date"></label>
     <label>Total days
@@ -87,6 +88,12 @@
 
   const KEY = 'consistency-tracker:v2';
 
+  const IN_IFRAME = (() => { try { return window.self !== window.top; } catch { return true; } })();
+let STORAGE_OK = true;
+try {
+  localStorage.setItem('__t', '1'); localStorage.removeItem('__t');
+} catch (e) { STORAGE_OK = false; }
+
   let state = {
     startDate: new Date().toISOString().slice(0,10),
     totalDays: 30,
@@ -127,12 +134,76 @@
     localStorage.setItem(KEY, JSON.stringify(state));
   }
 
-  function reset(){
-    if(!confirm('Reset all progress?')) return;
-    initItems();
-    state.bestStreak = 0;
-    render(); save();
+  async function save(){
+  state.startDate = startEl.value || new Date().toISOString().slice(0,10);
+  state.totalDays = parseInt(totalEl.value,10) || 30;
+  try {
+    if (!STORAGE_OK) throw new Error('storage disabled');
+    localStorage.setItem(KEY, JSON.stringify(state));
+    if (IN_IFRAME) console.log('Saved to localStorage (iframe)');
+  } catch (e) {
+    // Fallback: copy to clipboard (so progress isn’t lost)
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(state));
+      alertInline('Storage blocked in embed. Progress copied to clipboard.');
+    } catch {
+      console.warn('Clipboard failed; consider opening full page.');
+    }
   }
+}
+
+function exportData(){
+  const json = JSON.stringify(state, null, 2);
+  // Try normal download first
+  try{
+    const blob = new Blob([json], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'consistency-tracker.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+  } catch(e){
+    // Fallback: open in new tab or show copy dialog
+    const url = 'data:application/json;charset=utf-8,' + encodeURIComponent(json);
+    window.open(url, '_blank'); // clipboard fallback:
+    // navigator.clipboard.writeText(json);
+  }
+}
+
+
+function alertInline(msg){
+  // reuse confirm modal as a simple alert
+  confirmInline(msg).then(()=>{});
+}
+
+  
+  function confirmInline(message){
+  return new Promise(res=>{
+    const modal = document.getElementById('confirmModal');
+    document.getElementById('confirmText').textContent = message;
+    modal.style.display = 'grid';
+    const yes = document.getElementById('confirmYes');
+    const no = document.getElementById('confirmNo');
+    const close = (v)=>{ modal.style.display='none'; yes.onclick=no.onclick=null; res(v); };
+    yes.onclick = ()=>close(true);
+    no.onclick  = ()=>close(false);
+  });
+}
+
+
+//   function reset(){
+//     if(!confirm('Reset all progress?')) return;
+//     initItems();
+//     state.bestStreak = 0;
+//     render(); save();
+//   }
+
+async function reset(){
+  const ok = IN_IFRAME ? await confirmInline('Reset all progress?') : confirm('Reset all progress?');
+  if(!ok) return;
+  initItems(); state.bestStreak = 0; render(); save();
+}
+
 
   function exportData(){
     const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
@@ -269,5 +340,18 @@ if(done === state.totalDays) alert('Challenge complete! 🏁🔥');
   load();
 })();
 </script>
+<button onclick="window.open(location.href, '_blank')" class="primary">Open Full Page</button>
+
+
+<div id="confirmModal" style="position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.45);z-index:9999">
+    <div style="background:#151a23;border:1px solid #232b3a;border-radius:12px;padding:16px;max-width:360px;width:92%;color:#e6edf3">
+      <div id="confirmText" style="margin-bottom:12px;font-weight:600">Are you sure?</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button id="confirmNo" style="padding:8px 12px;border-radius:8px;border:1px solid #232b3a;background:#0f1320;color:#e6edf3;cursor:pointer">Cancel</button>
+        <button id="confirmYes" style="padding:8px 12px;border-radius:8px;border:0;background:linear-gradient(135deg,#fb7185,#f43f5e);color:#190306;cursor:pointer;font-weight:700">Yes, reset</button>
+      </div>
+    </div>
+  </div>
+  
 </body>
 </html>
